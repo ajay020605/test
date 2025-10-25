@@ -1,7 +1,7 @@
 import express from "express";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import authMiddleware  from "../middleware/auth";    
+import auth  from "../middleware/auth.js";    
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -10,19 +10,20 @@ const prisma = new PrismaClient();
 const createQuestionSchema = z.object({
   title: z.string().min(1),
   content: z.string().min(1),
-  userId: z.number(),
+ 
 });
 
 const createAnswerSchema = z.object({
   content: z.string().min(1),
-  userId: z.number(),
+ 
 });
 
 // Create a new question
-router.post("/", authMiddleware , async (req, res) => {
+router.post("/", auth , async (req, res) => {
   try {
-    const { title, content, userId } = createQuestionSchema.parse(req.body);
-
+    const { title, content } = createQuestionSchema.parse(req.body);
+    const userId = req.user.id;
+    console.log("Creating question for userId:", userId);
     const question = await prisma.question.create({
       data: { title, content, userId },
       include: {
@@ -42,7 +43,7 @@ router.post("/", authMiddleware , async (req, res) => {
 });
 
 // Get all questions
-router.get("/", authMiddleware , async (req, res) => {
+router.get("/", auth , async (req, res) => {
   try {
     const questions = await prisma.question.findMany({
       include: {
@@ -64,11 +65,12 @@ router.get("/", authMiddleware , async (req, res) => {
 
 
 // Reply to a question (create answer)
-router.post("/:questionId/answers", authMiddleware , async (req, res) => {
+router.post("/:questionId/answers", auth , async (req, res) => {
   try {
     const questionId = parseInt(req.params.questionId);
-    const { content, userId } = createAnswerSchema.parse(req.body);
-
+    console.log("Replying to questionId:", questionId);
+    const { content } = createAnswerSchema.parse(req.body);
+    const userId = req.user.id;
     const question = await prisma.question.findUnique({ where: { id: questionId } });
     if (!question) return res.status(404).json({ error: "Question not found" });
 
@@ -87,29 +89,49 @@ router.post("/:questionId/answers", authMiddleware , async (req, res) => {
   }
 });
 
-// Upvote an answer
-router.post("/answers/:id/upvote",authMiddleware, async (req, res) => {
+// POST /answers/:id/like
+router.post("/answers/:id/like", auth, async (req, res) => {
   try {
     const answerId = parseInt(req.params.id);
+    const userId = req.user.id;
 
-    const answer = await prisma.answer.update({
-      where: { id: answerId },
-      data: { likes: { increment: 1 } },
-      include: {
-        user: { select: { id: true, username: true } },
-        question: { select: { id: true, title: true } },
+    // Check if user already liked
+    const existingLike = await prisma.like.findUnique({
+      where: {
+        userId_answerId: { userId, answerId },
       },
     });
 
-    res.json(answer);
+    let updatedAnswer;
+
+    if (existingLike) {
+      // 👎 Unlike: remove record & decrement count
+      await prisma.like.delete({ where: { id: existingLike.id } });
+      updatedAnswer = await prisma.answer.update({
+        where: { id: answerId },
+        data: { likes: { decrement: 1 } },
+      });
+      return res.json({ message: "Unliked", likes: updatedAnswer.likes });
+    } else {
+      // 👍 Like: add record & increment count
+      await prisma.like.create({
+        data: { userId, answerId },
+      });
+      updatedAnswer = await prisma.answer.update({
+        where: { id: answerId },
+        data: { likes: { increment: 1 } },
+      });
+      return res.json({ message: "Liked", likes: updatedAnswer.likes });
+    }
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to upvote answer" });
+    res.status(500).json({ error: "Failed to toggle like" });
   }
 });
 
+
 // Get answers for a question
-router.get("/:questionId/answers",authMiddleware, async (req, res) => {
+router.get("/:questionId/answers",auth, async (req, res) => {
   try {
     const questionId = parseInt(req.params.questionId);
     const answers = await prisma.answer.findMany({
@@ -126,7 +148,7 @@ router.get("/:questionId/answers",authMiddleware, async (req, res) => {
 });
 
 // Search questions and answers
-router.get("/search", authMiddleware ,async (req, res) => {
+router.get("/search", auth ,async (req, res) => {
   try {
     const { q: searchTerm } = req.query;
     if (!searchTerm) return res.status(400).json({ error: "Search term required" });
