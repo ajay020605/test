@@ -1,0 +1,45 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = "postgresql://admin:admin123@localhost:5432/mydb_shadow"
+}
+
+model User {
+  id         Int         @id @default(autoincrement())
+  username   String      @unique
+  email      String      @unique
+  password   String
+  createdAt  DateTime    @default(now())
+  questions  Question[]  // one user → many questions
+  answers    Answer[]    // one user → many answers
+}
+
+model Question {
+  id         Int        @id @default(autoincrement())
+  title      String
+  content    String
+  createdAt  DateTime   @default(now())
+  userId     Int
+
+  user       User       @relation(fields: [userId], references: [id])
+  answers    Answer[]   // one question → many answers
+}
+
+model Answer {
+  id         Int        @id @default(autoincrement())
+  content    String
+  likes      Int        @default(0)
+  createdAt  DateTime   @default(now())
+  userId     Int
+  questionId Int
+
+  user       User       @relation(fields: [userId], references: [id])
+  question   Question   @relation(fields: [questionId], references: [id])
+}
