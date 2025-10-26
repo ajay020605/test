@@ -7,7 +7,7 @@ import questionRoutes from "./routes/questionAnswer.js";  // Questions & answers
 
 dotenv.config();
 const app = express();
-
+app.use(cors());
 // Middleware
 app.use(express.json());
 app.use(cors());
@@ -20,6 +20,6 @@ app.use("/api/users", userRoutes);
 app.use("/api/questions", questionRoutes); // questions & answers
 
 // Start server
-app.listen(process.env.PORT || 5000, () =>
+app.listen(process.env.PORT || 5000, '0.0.0.0' ,() =>
   console.log(`🚀 Server running on port ${process.env.PORT || 5000}`)
 );
